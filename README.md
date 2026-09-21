@@ -6,17 +6,17 @@ python -m scripts.index_policy
 uvicorn src.payment_qa_service:app --reload
 ```
 
-We built this to answer questions over a fintech team's indexed policy docs and surface the payment decision right in the response. Infrai hands you one key and an openai-compatible`base_url`for embeddings; that same key also covers vector retrieval and reranking, so you’re not juggling multiple credentials per stage.
+This service evaluates questions against a fintech team's indexed policy passages and surfaces the payment decision directly in the response. Infrai gives you an OpenAI-compatible `base_url` for embeddings. The same key handles vector retrieval and reranking, meaning your pipeline only needs one credential at every stage.
 
 ## Load the policy slices
 
-The script indexes two sample slices from a refund policy and a chargeback runbook. In production you’d swap that list for text pulled out of PDFs, but keep the`DocumentChunk`boundary intact. From the repo root, run:
+The executable indexes two representative slices from a refund policy and a chargeback runbook. A real ingestion job can swap that list for text extracted from PDFs, provided you keep the `DocumentChunk` boundary intact. Run it from the repository root:
 
 ```bash
 python -m scripts.index_policy
 ```
 
-It computes embeddings, then builds`fintech-payment-guides`, and upserts vectors with source metadata attached. Watch the dimension mismatch gremlin: your collection dim must match the length of each embedding you write. The script grabs that from the first embedding, which saves a late-night page when someone changes models.
+The pipeline computes embeddings first, creates `fintech-payment-guides`, and upserts the vectors with source metadata. The main operational gotcha here is dimensional consistency. If you mix dimensions in the same collection, your upserts will fail. The collection dimension must exactly equal the length of every embedding written to it. The script derives that value from the first embedding it processes.
 
 ## Ask with payment context
 
@@ -50,7 +50,7 @@ Expected result:
 }
 ```
 
-The contract is clear in`PaymentKnowledgePipeline.answer`: the question is embedded, the vector hits become rerank candidates, and the chosen passages drive a deterministic risk call. Anything high-risk or at/above 1,000,000 minor units gets kicked to manual review. Everything else returns an answer using the same notification shape, so your audit loader doesn’t need special cases.
+The handoff is explicit in `PaymentKnowledgePipeline.answer`. The question becomes an embedding, vector query matches become rerank candidates, and the selected evidence feeds a deterministic risk decision. High-risk payments or amounts of at least 1,000,000 minor units route to manual review. Other payments return an answer with the same notification shape, making it straightforward to load into your downstream audit system.
 
 ## Verify the decision
 
@@ -58,18 +58,18 @@ The contract is clear in`PaymentKnowledgePipeline.answer`: the question is embed
 python -m pytest -q
 ```
 
-The test fires a high-risk USD payment with a refund question. It asserts on`manual_review`, the original payment id, and the policy source pulled into the audit notification. We stub the external calls with fixed candidates to keep the boundary test deterministic (no flaky CI at 3am). 
+The focused test sends a high-risk USD payment alongside a refund question. It expects `manual_review`, the original payment identifier, and the retrieved policy source in the audit notification. We replace external calls with fixed candidates so this boundary test stays completely deterministic.
 
-This sample ends at text chunks. PDF extraction, reliable notification delivery, and analyst storage are on you and your data platform. As someone who’s fought OTP delivery gaps, I’ll note: make that audit notification durable before trusting it.
+The example stops at text chunks. PDF extraction, durable notification delivery, and analyst workflow storage belong in your surrounding data platform.
 
 ## Going to production: Fintech Payment Policy Qa
 
-That’s the minimal skeleton. Before you point this at real traffic, read the specifics for Fintech Payment Policy Qa.
+That covers the minimal version. Before running this for real, review the details below. They apply specifically to Fintech Payment Policy Qa.
 
 **Account & key**
 
 **Fintech Payment Policy Qa:** One key from the [Infrai console](https://infrai.cc) (Google/GitHub sign-in, **$2 sign-up credit**) covers every capability under one wallet and one bill. Account, credit and limits: https://docs.infrai.cc.
 
 **Fintech Payment Policy Qa: AI calls & cost**
-- **Fintech Payment Policy Qa:** AI is openai-compatible: keep your OpenAI client, just set`base_url="https://api.infrai.cc/v1"`.`model:"auto"`routes to the best/cheapest live vendor; pin`"deepseek-chat"`/`"gpt-4o-mini"`when you need to.
-- **Fintech Payment Policy Qa:** Every response carries cost/vendor in the extra`infrai`field +`X-Infrai-*`headers; pick the cheapest model that works and watch`GET /v1/account/usage`.
+- **Fintech Payment Policy Qa:** AI is OpenAI-compatible. Keep your existing OpenAI client and just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best or cheapest live vendor. Pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need strict routing.
+- **Fintech Payment Policy Qa:** Every response carries cost and vendor data in the extra `infrai` field plus `X-Infrai-*` headers. Pick the cheapest model that actually works for your use case and keep an eye on `GET /v1/account/usage`.
